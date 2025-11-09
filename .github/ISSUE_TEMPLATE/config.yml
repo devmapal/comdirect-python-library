@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: GitHub Discussions
-    url: https://github.com/yourusername/comdirect-client/discussions
+    url: https://github.com/mcdax/comdirect-python-library/discussions
     about: Ask questions and share ideas
   - name: Documentation
-    url: https://github.com/yourusername/comdirect-client#readme
+    url: https://github.com/mcdax/comdirect-python-library#readme
     about: Read the documentation

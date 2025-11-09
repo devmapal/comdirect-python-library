@@ -5,9 +5,9 @@ description = "Async Python client library for Comdirect Banking API with automa
 authors = ["Philipp"]
 readme = "README.md"
 license = "MIT"
-repository = "https://github.com/yourusername/comdirect-client"
-homepage = "https://github.com/yourusername/comdirect-client"
-documentation = "https://github.com/yourusername/comdirect-client#readme"
+repository = "https://github.com/mcdax/comdirect-python-library"
+homepage = "https://github.com/mcdax/comdirect-python-library"
+documentation = "https://github.com/mcdax/comdirect-python-library#readme"
 keywords = ["comdirect", "banking", "api", "async", "oauth2"]
 classifiers = [
     "Development Status :: 4 - Beta",

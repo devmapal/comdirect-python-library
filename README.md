@@ -1,6 +1,6 @@
 # Comdirect Python API Client
 
-[![Tests](https://github.com/yourusername/comdirect-client/actions/workflows/tests.yml/badge.svg)](https://github.com/yourusername/comdirect-client/actions/workflows/tests.yml)
+[![Tests](https://github.com/mcdax/comdirect-python-library/actions/workflows/tests.yml/badge.svg)](https://github.com/mcdax/comdirect-python-library/actions/workflows/tests.yml)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
