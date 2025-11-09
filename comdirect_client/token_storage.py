@@ -61,9 +61,7 @@ class TokenPersistence:
 
             # Verify parent directory exists
             if not parent.exists():
-                raise TokenStorageError(
-                    f"Storage directory does not exist: {parent.absolute()}"
-                )
+                raise TokenStorageError(f"Storage directory does not exist: {parent.absolute()}")
 
             if not parent.is_dir():
                 raise TokenStorageError(
@@ -152,10 +150,7 @@ class TokenPersistence:
                 logger.warning("Loaded tokens are expired")
                 return None
 
-            logger.debug(
-                f"Tokens loaded from storage "
-                f"(expires: {token_expiry.isoformat()})"
-            )
+            logger.debug(f"Tokens loaded from storage " f"(expires: {token_expiry.isoformat()})")
 
             return (
                 token_data["access_token"],

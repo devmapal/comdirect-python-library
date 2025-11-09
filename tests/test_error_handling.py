@@ -56,10 +56,7 @@ class TestValidationErrorHandling:
             mock_get.return_value = mock_response
 
             with pytest.raises(ValidationError) as exc_info:
-                await client.get_transactions(
-                    "test_account_id",
-                    without_attributes="invalid_attr"
-                )
+                await client.get_transactions("test_account_id", without_attributes="invalid_attr")
 
             assert "Invalid request parameters" in str(exc_info.value)
 
@@ -114,7 +111,7 @@ class TestQueryParameterExposure:
             # Verify the call includes query parameters
             mock_get.assert_called_once()
             call_args = mock_get.call_args
-            
+
             # Check that params are passed
             assert "params" in call_args.kwargs
             assert call_args.kwargs["params"] == {"without-attr": "account"}
@@ -144,10 +141,7 @@ class TestQueryParameterExposure:
         with patch.object(client._http_client, "get", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = mock_response
 
-            await client.get_transactions(
-                "test_account_id",
-                with_attributes=False
-            )
+            await client.get_transactions("test_account_id", with_attributes=False)
 
             call_args = mock_get.call_args
             assert call_args.kwargs["params"] == {"without-attr": "account"}
@@ -166,12 +160,12 @@ class TestQueryParameterExposure:
                 "test_account_id",
                 transaction_direction="CREDIT",
                 paging_first=10,
-                without_attributes="booking"
+                without_attributes="booking",
             )
 
             call_args = mock_get.call_args
             params = call_args.kwargs["params"]
-            
+
             # Verify all parameters are present
             assert params["transactionDirection"] == "CREDIT"
             assert params["paging-first"] == "10"
@@ -193,12 +187,12 @@ class TestFieldNameFallback:
             "debtor": {
                 "holderName": "John Doe",
                 "iban": "DE89370400440532013000",
-                "bic": "COBADEFF"
-            }
+                "bic": "COBADEFF",
+            },
         }
 
         transaction = Transaction.from_dict(data)
-        
+
         assert transaction.debtor is not None
         assert transaction.debtor.holderName == "John Doe"
         assert transaction.debtor.iban == "DE89370400440532013000"
@@ -215,12 +209,12 @@ class TestFieldNameFallback:
             "deptor": {  # Swagger spec typo
                 "holderName": "Jane Doe",
                 "iban": "DE89370400440532013001",
-                "bic": "COBADEFF"
-            }
+                "bic": "COBADEFF",
+            },
         }
 
         transaction = Transaction.from_dict(data)
-        
+
         # Should handle the typo gracefully
         assert transaction.debtor is not None
         assert transaction.debtor.holderName == "Jane Doe"
@@ -237,17 +231,17 @@ class TestFieldNameFallback:
             "debtor": {
                 "holderName": "Correct Name",
                 "iban": "DE89370400440532013000",
-                "bic": "COBADEFF"
+                "bic": "COBADEFF",
             },
             "deptor": {  # Should be ignored
                 "holderName": "Wrong Name",
                 "iban": "DE89370400440532013999",
-                "bic": "COBAXXXX"
-            }
+                "bic": "COBAXXXX",
+            },
         }
 
         transaction = Transaction.from_dict(data)
-        
+
         # Should use 'debtor' not 'deptor'
         assert transaction.debtor.holderName == "Correct Name"
         assert transaction.debtor.iban == "DE89370400440532013000"

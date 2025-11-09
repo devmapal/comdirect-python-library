@@ -120,7 +120,7 @@ def valid_credentials(comdirect_client, mock_httpx_client):
             "expires_in": 600,
         },
     )
-    
+
     # Mock Step 2: Session status
     mock_httpx_client.get.return_value = AsyncMock(
         status_code=200,
@@ -355,7 +355,7 @@ async def request_account_balances(comdirect_client, mock_httpx_client):
             ]
         },
     )
-    
+
     try:
         await comdirect_client.get_account_balances()
     except Exception:

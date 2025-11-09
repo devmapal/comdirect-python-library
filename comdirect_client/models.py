@@ -43,9 +43,7 @@ class AccountInformation:
     @classmethod
     def from_dict(cls, data: dict[str, str]) -> "AccountInformation":
         """Create AccountInformation from API response dict."""
-        return cls(
-            holderName=data["holderName"], iban=data.get("iban"), bic=data.get("bic")
-        )
+        return cls(holderName=data["holderName"], iban=data.get("iban"), bic=data.get("bic"))
 
 
 @dataclass
@@ -105,7 +103,7 @@ class AccountBalance:
 @dataclass
 class Transaction:
     """Bank account transaction.
-    
+
     Note: The Comdirect API Swagger spec contains a typo where the field "debtor"
     is documented as "deptor" (line 354 in API spec v20.04). This implementation
     uses the correct field name "debtor". If the live API returns "deptor",
@@ -138,7 +136,7 @@ class Transaction:
         amount = None
         if data.get("amount"):
             amount = AmountValue.from_dict(data["amount"])
-        
+
         transaction_type = None
         if data.get("transactionType"):
             transaction_type = EnumText.from_dict(data["transactionType"])

@@ -68,7 +68,6 @@ async def main():
         reauth_callback=reauth_callback,  # Optional callback
         token_refresh_threshold_seconds=120,  # Refresh 2 minutes before expiry
     ) as client:
-
         logger.info("=" * 60)
         logger.info("Step 1: Authentication")
         logger.info("=" * 60)

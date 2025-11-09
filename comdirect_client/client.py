@@ -120,7 +120,12 @@ class ComdirectClient:
             logger.debug(f"Generated session ID: {sanitize_token(self._session_id)}")
 
         return json.dumps(
-            {"clientRequestId": {"sessionId": self._session_id, "requestId": self._generate_request_id()}}
+            {
+                "clientRequestId": {
+                    "sessionId": self._session_id,
+                    "requestId": self._generate_request_id(),
+                }
+            }
         )
 
     async def authenticate(self) -> None:
@@ -549,9 +554,7 @@ class ComdirectClient:
 
                 # Calculate time until refresh needed
                 now = datetime.now()
-                refresh_time = self._token_expiry - timedelta(
-                    seconds=self.token_refresh_threshold
-                )
+                refresh_time = self._token_expiry - timedelta(seconds=self.token_refresh_threshold)
                 sleep_duration = (refresh_time - now).total_seconds()
 
                 if sleep_duration > 0:
@@ -617,20 +620,14 @@ class ComdirectClient:
                 self._access_token = access_token
                 self._refresh_token = refresh_token
                 self._token_expiry = token_expiry
-                logger.info(
-                    f"Tokens restored from storage (expires: {token_expiry.isoformat()})"
-                )
+                logger.info(f"Tokens restored from storage (expires: {token_expiry.isoformat()})")
                 self._start_refresh_task()
         except TokenStorageError as e:
             logger.warning(f"Failed to restore tokens from storage: {e}")
 
     def _save_tokens_to_storage(self) -> None:
         """Save current tokens to persistent storage if configured."""
-        if (
-            self._access_token
-            and self._refresh_token
-            and self._token_expiry
-        ):
+        if self._access_token and self._refresh_token and self._token_expiry:
             try:
                 self._token_storage.save_tokens(
                     self._access_token, self._refresh_token, self._token_expiry
@@ -679,9 +676,11 @@ class ComdirectClient:
                 if not success:
                     raise TokenExpiredError("Token expired and refresh failed")
 
-    async def get_account_balances(self, with_attributes: bool = True, without_attributes: Optional[str] = None) -> list[AccountBalance]:
+    async def get_account_balances(
+        self, with_attributes: bool = True, without_attributes: Optional[str] = None
+    ) -> list[AccountBalance]:
         """Retrieve account balances.
-        
+
         Args:
             with_attributes: Include account master data (default: True)
             without_attributes: Comma-separated list of attributes to exclude (optional)
@@ -825,8 +824,12 @@ class ComdirectClient:
                     raise TokenExpiredError("Token expired and refresh failed")
                 # Retry request with new token
                 return await self.get_transactions(
-                    account_id, transaction_state, transaction_direction, paging_first, 
-                    with_attributes, without_attributes
+                    account_id,
+                    transaction_state,
+                    transaction_direction,
+                    paging_first,
+                    with_attributes,
+                    without_attributes,
                 )
 
             if response.status_code == 404:
