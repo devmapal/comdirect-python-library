@@ -6,7 +6,7 @@ import logging
 import time
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast, cast
 
 import httpx
 
@@ -214,7 +214,7 @@ class ComdirectClient:
 
             access_token = data["access_token"]
             logger.info(f"OAuth2 token obtained: {sanitize_token(access_token)}")
-            return access_token
+            return cast(str, access_token)
 
         except httpx.TimeoutException as e:
             logger.error("Network timeout during authentication")
@@ -255,7 +255,7 @@ class ComdirectClient:
 
             session_uuid = data[0]["identifier"]
             logger.info(f"Session UUID retrieved: {sanitize_token(session_uuid)}")
-            return session_uuid
+            return cast(str, session_uuid)
 
         except httpx.TimeoutException as e:
             logger.error("Network timeout during session retrieval")

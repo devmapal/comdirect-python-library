@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 
 @dataclass
@@ -60,7 +60,7 @@ class Account:
     creditLimit: Optional[AmountValue] = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Account":
+    def from_dict(cls, data: dict[str, Any]) -> "Account":
         """Create Account from API response dict."""
         return cls(
             accountId=data["accountId"],
@@ -88,7 +88,7 @@ class AccountBalance:
     availableCashAmountEUR: AmountValue
 
     @classmethod
-    def from_dict(cls, data: dict) -> "AccountBalance":
+    def from_dict(cls, data: dict[str, Any]) -> "AccountBalance":
         """Create AccountBalance from API response dict."""
         return cls(
             accountId=data["accountId"],
@@ -126,7 +126,7 @@ class Transaction:
     directDebitMandateId: Optional[str] = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Transaction":
+    def from_dict(cls, data: dict[str, Any]) -> "Transaction":
         """Create Transaction from API response dict."""
         booking_date = None
         if data.get("bookingDate"):
