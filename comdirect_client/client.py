@@ -658,6 +658,14 @@ class ComdirectClient:
         """
         return self._token_expiry
 
+    def register_reauth_callback(self, callback: Callable[[str], None]) -> None:
+        """Register a callback to be invoked when reauth is required.
+
+        Args:
+            callback: Function to call with error message when reauth is needed
+        """
+        self.reauth_callback = callback
+
     async def _ensure_authenticated(self) -> None:
         """Ensure client has valid authentication token.
 

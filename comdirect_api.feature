@@ -299,11 +299,13 @@ Feature: Comdirect API Client Library
 
   Scenario: Reauth callback is invoked on persistent 401 errors
     Given a reauth callback is registered
-    And the library has tokens stored
-    When an API request receives 401 and refresh also fails
-    Then the library should invoke the reauth callback with reason="token_refresh_failed"
-    And the library should log "ERROR: Persistent authentication failure"
-    And the user should be notified to re-authenticate
+    And the access token is expired and refresh will also fail
+    And a reauth callback is registered to capture persistent failure
+    When the user requests account balances and receives repeated 401 responses
+    Then the library should attempt token refresh and fail
+    And the reauth callback should be invoked with reason api_request_unauthorized
+    And tokens should be cleared after persistent authentication failure
+    And a TokenExpiredError should be raised to the caller
 
   Scenario: User triggers authentication after reauth callback
     Given the reauth callback was invoked
