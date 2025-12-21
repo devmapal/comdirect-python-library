@@ -1,7 +1,7 @@
 """Integration tests for HTTP error handling and query parameters."""
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from comdirect_client import (
@@ -9,6 +9,11 @@ from comdirect_client import (
     ValidationError,
     ServerError,
 )
+
+
+def utc_now() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 
 @pytest.fixture
@@ -20,9 +25,9 @@ def client():
         username="test_user",
         password="test_pass",
     )
-    # Set up minimal authentication state
+    # Set up minimal authentication state (use UTC-aware datetime)
     client._access_token = "test_token"
-    client._token_expiry = datetime.now() + timedelta(hours=1)
+    client._token_expiry = utc_now() + timedelta(hours=1)
     return client
 
 

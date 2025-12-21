@@ -5,7 +5,7 @@ import json
 import logging
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional, cast
 
 import httpx
@@ -26,6 +26,11 @@ from comdirect_client.token_storage import TokenPersistence, TokenStorageError
 logger = logging.getLogger(__name__)
 
 
+def utc_now() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
+
+
 def sanitize_token(token: str, prefix_length: int = 8) -> str:
     """Sanitize a token for logging by showing only the prefix."""
     if not token or len(token) <= prefix_length:
@@ -42,6 +47,53 @@ class ComdirectClient:
     - Account balance and transaction retrieval
     - Reauth callback on token expiration
     - Comprehensive logging with sensitive data sanitization
+
+    IMPORTANT - Persistent Client Usage:
+        This client should be kept alive (persistent) throughout your application's
+        lifecycle for best functionality. The client runs a background asyncio task
+        that automatically refreshes tokens 120 seconds before they expire.
+
+        If you destroy the client instance after each operation:
+        - The background refresh task is cancelled
+        - Tokens will expire after ~10 minutes
+        - A new TAN approval will be required for each session
+
+        Best practice:
+        - Create the client once at application startup
+        - Reuse the same instance for all API calls
+        - Use token_storage_path to persist tokens across application restarts
+        - When tokens are loaded from storage, the refresh task starts automatically
+
+    Example (recommended - persistent client):
+        ```python
+        # Create once at startup
+        client = ComdirectClient(
+            client_id="...",
+            client_secret="...",
+            username="...",
+            password="...",
+            token_storage_path="/path/to/tokens.json",
+        )
+
+        # Reuse for all operations
+        await client.authenticate()  # TAN approval once
+        balances = await client.get_account_balances()  # Uses same session
+        transactions = await client.get_transactions(...)  # Still same session
+
+        # Token auto-refreshes in background - no new TAN needed!
+        ```
+
+    Example (NOT recommended - new client per operation):
+        ```python
+        # DON'T DO THIS - requires TAN approval every ~10 minutes
+        async def get_balance():
+            async with ComdirectClient(...) as client:
+                await client.authenticate()  # TAN approval needed
+                return await client.get_account_balances()
+            # Client destroyed, refresh task cancelled!
+
+        # Next call after token expires requires new TAN
+        ```
     """
 
     def __init__(
@@ -52,6 +104,7 @@ class ComdirectClient:
         password: str,
         base_url: str = "https://api.comdirect.de",
         reauth_callback: Optional[Callable[[str], None]] = None,
+        tan_status_callback: Optional[Callable[[str, dict[str, Any]], None]] = None,
         token_refresh_threshold_seconds: int = 120,
         timeout_seconds: float = 30.0,
         token_storage_path: Optional[str] = None,
@@ -65,6 +118,8 @@ class ComdirectClient:
             password: Comdirect account password
             base_url: API base URL (default: production API)
             reauth_callback: Optional callback function invoked when reauth is needed
+            tan_status_callback: Optional callback function invoked during TAN approval process
+                               Called with (status, data) where status is 'requested', 'pending', 'approved', 'timeout'
             token_refresh_threshold_seconds: Seconds before expiry to trigger refresh (default: 120)
             timeout_seconds: HTTP request timeout in seconds (default: 30.0)
             token_storage_path: Optional file path to persist tokens for session recovery.
@@ -80,6 +135,7 @@ class ComdirectClient:
         self._password = password  # Private to avoid accidental logging
         self.base_url = base_url.rstrip("/")
         self.reauth_callback = reauth_callback
+        self.tan_status_callback = tan_status_callback
         self.token_refresh_threshold = token_refresh_threshold_seconds
         self.timeout_seconds = timeout_seconds
 
@@ -146,6 +202,7 @@ class ComdirectClient:
             SessionActivationError: If session activation fails
         """
         logger.info("Starting authentication flow")
+        logger.info("Reason: Initial authentication required (no valid tokens available)")
 
         try:
             # Step 1: OAuth2 Password Credentials
@@ -310,6 +367,14 @@ class ComdirectClient:
             poll_url = auth_info["link"]["href"]
 
             logger.info(f"TAN challenge created - Type: {tan_type}, ID: {challenge_id}")
+            logger.warning(f"TAN approval required - Method: {tan_type}, Timeout: 60 seconds")
+
+            # Notify that TAN has been requested
+            self._invoke_tan_status_callback(
+                "requested",
+                {"tan_type": tan_type, "challenge_id": challenge_id, "timeout_seconds": 60},
+            )
+
             return challenge_id, tan_type, poll_url
 
         except httpx.TimeoutException as e:
@@ -332,15 +397,22 @@ class ComdirectClient:
         Raises:
             TANTimeoutError: If TAN approval times out after 60 seconds
         """
-        logger.info(f"Step 4: Polling for TAN approval ({tan_type})")
+        logger.info(f"Step 4: Waiting for TAN approval ({tan_type})")
 
         start_time = time.time()
         timeout = 60  # 60 seconds timeout
         poll_interval = 1  # 1 second between polls
 
+        # Notify that TAN approval is pending
+        self._invoke_tan_status_callback(
+            "pending", {"tan_type": tan_type, "timeout_seconds": timeout, "elapsed_seconds": 0}
+        )
+
         while time.time() - start_time < timeout:
             await asyncio.sleep(poll_interval)
-            logger.debug("Polling TAN status")
+            elapsed = int(time.time() - start_time)
+            remaining = timeout - elapsed
+            logger.debug(f"Polling TAN status (elapsed: {elapsed}s, remaining: {remaining}s)")
 
             try:
                 response = await self._http_client.get(
@@ -358,8 +430,22 @@ class ComdirectClient:
 
                     if status == "AUTHENTICATED":
                         logger.info(f"TAN approved via {tan_type}")
+                        self._invoke_tan_status_callback(
+                            "approved", {"tan_type": tan_type, "elapsed_seconds": elapsed}
+                        )
                         return
                     elif status == "PENDING":
+                        if elapsed % 10 == 0 and elapsed > 0:  # Log every 10 seconds
+                            logger.info(f"Still waiting for TAN approval ({elapsed}s elapsed)")
+                            self._invoke_tan_status_callback(
+                                "pending",
+                                {
+                                    "tan_type": tan_type,
+                                    "timeout_seconds": timeout,
+                                    "elapsed_seconds": elapsed,
+                                    "remaining_seconds": remaining,
+                                },
+                            )
                         logger.debug("TAN approval pending, continuing poll")
                         continue
                     else:
@@ -373,7 +459,10 @@ class ComdirectClient:
                 continue
 
         # Timeout reached
-        logger.warning("TAN approval timeout")
+        logger.error(f"TAN approval timeout - No approval received after {timeout} seconds")
+        self._invoke_tan_status_callback(
+            "timeout", {"tan_type": tan_type, "timeout_seconds": timeout}
+        )
         raise TANTimeoutError("TAN approval timed out after 60 seconds")
 
     async def _step4b_activate_session(
@@ -458,7 +547,7 @@ class ComdirectClient:
             self._refresh_token = data["refresh_token"]
             expires_in = data["expires_in"]
 
-            self._token_expiry = datetime.now() + timedelta(seconds=expires_in)
+            self._token_expiry = utc_now() + timedelta(seconds=expires_in)
 
             logger.info(
                 f"Secondary token obtained: {sanitize_token(self._access_token or '')}, "
@@ -519,7 +608,7 @@ class ComdirectClient:
                 self._refresh_token = data["refresh_token"]
                 expires_in = data["expires_in"]
 
-                self._token_expiry = datetime.now() + timedelta(seconds=expires_in)
+                self._token_expiry = utc_now() + timedelta(seconds=expires_in)
 
                 logger.info(f"Token refreshed, expires in {expires_in}s")
                 logger.debug("Token refresh lock released")
@@ -553,13 +642,18 @@ class ComdirectClient:
                     continue
 
                 # Calculate time until refresh needed
-                now = datetime.now()
+                now = utc_now()
                 refresh_time = self._token_expiry - timedelta(seconds=self.token_refresh_threshold)
                 sleep_duration = (refresh_time - now).total_seconds()
 
                 if sleep_duration > 0:
                     logger.debug(f"Next token refresh in {sleep_duration:.0f}s")
                     await asyncio.sleep(sleep_duration)
+                else:
+                    # Token is already expired or near expiry, refresh immediately
+                    logger.info(
+                        f"Token already expired or near expiry (by {-sleep_duration:.0f}s), refreshing immediately"
+                    )
 
                 # Refresh token
                 logger.info(
@@ -586,6 +680,10 @@ class ComdirectClient:
             reason: Reason for requiring reauth
         """
         self._clear_tokens()
+
+        logger.warning(
+            f"Reauthentication required - Reason: {reason}, Action: Call authenticate() again"
+        )
 
         if self.reauth_callback:
             logger.info(f"Invoking reauth callback - Reason: {reason}")
@@ -648,7 +746,13 @@ class ComdirectClient:
         Returns:
             True if authenticated with valid token, False otherwise
         """
-        return self._access_token is not None and self._token_expiry is not None
+        result = self._access_token is not None and self._token_expiry is not None
+        logger.debug(
+            f"is_authenticated() check: access_token={'present' if self._access_token else 'None'}, "
+            f"token_expiry={'present' if self._token_expiry else 'None'}, "
+            f"result={result}"
+        )
+        return result
 
     def get_token_expiry(self) -> Optional[datetime]:
         """Get the token expiry datetime.
@@ -666,6 +770,31 @@ class ComdirectClient:
         """
         self.reauth_callback = callback
 
+    def register_tan_status_callback(self, callback: Callable[[str, dict[str, Any]], None]) -> None:
+        """Register a callback to be invoked during TAN approval process.
+
+        Args:
+            callback: Function to call with (status, data) during TAN approval.
+                     Status values: 'requested', 'pending', 'approved', 'timeout'
+                     Data dict contains additional info like tan_type, elapsed_seconds, etc.
+        """
+        self.tan_status_callback = callback
+
+    def _invoke_tan_status_callback(self, status: str, data: dict[str, Any]) -> None:
+        """Invoke the TAN status callback if registered.
+
+        Args:
+            status: TAN status ('requested', 'pending', 'approved', 'timeout')
+            data: Additional data about the TAN process
+        """
+        if self.tan_status_callback:
+            try:
+                self.tan_status_callback(status, data)
+            except Exception as e:
+                logger.error(f"Error in TAN status callback: {e}")
+        else:
+            logger.debug(f"TAN status update: {status} - {data} (no callback registered)")
+
     async def _ensure_authenticated(self) -> None:
         """Ensure client has valid authentication token.
 
@@ -677,7 +806,7 @@ class ComdirectClient:
 
         # Check if token needs refresh
         if self._token_expiry:
-            now = datetime.now()
+            now = utc_now()
             if now >= self._token_expiry:
                 logger.warning("Access token expired, attempting refresh")
                 success = await self.refresh_token()

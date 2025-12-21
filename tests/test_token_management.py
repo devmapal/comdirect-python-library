@@ -1,7 +1,7 @@
 """Token refresh and callback tests."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
@@ -9,6 +9,11 @@ import pytest
 
 from comdirect_client.client import ComdirectClient
 from comdirect_client.exceptions import TokenExpiredError
+
+
+def utc_now() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 
 @pytest.fixture
@@ -31,7 +36,7 @@ def authenticated_client_with_expiry(mock_httpx_client):
         client._http_client = mock_httpx_client
         client._access_token = "test_access_token"
         client._refresh_token = "test_refresh_token"
-        client._token_expiry = datetime.now() + timedelta(seconds=150)  # Expires in 150 seconds
+        client._token_expiry = utc_now() + timedelta(seconds=150)  # Expires in 150 seconds
         client._session_id = "test_session_id"
         yield client
 
@@ -130,7 +135,7 @@ class TestTokenRefresh:
             )
             client._http_client = mock_httpx_client
             client._access_token = "test_access_token"
-            client._token_expiry = datetime.now() - timedelta(seconds=10)  # Already expired
+            client._token_expiry = utc_now() - timedelta(seconds=10)  # Already expired
             client._session_id = "test_session_id"
 
             response = Mock()

@@ -60,7 +60,7 @@ def mock_httpx_client():
 @pytest.fixture
 def authenticated_client(mock_httpx_client):
     """Create an authenticated client with mocked HTTP."""
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     with patch("comdirect_client.client.httpx.AsyncClient", return_value=mock_httpx_client):
         client = ComdirectClient(
@@ -70,10 +70,10 @@ def authenticated_client(mock_httpx_client):
             password="test_pass",
         )
         client._http_client = mock_httpx_client
-        # Set tokens to simulate authenticated state
+        # Set tokens to simulate authenticated state (use UTC-aware datetime)
         client._access_token = "test_access_token"
         client._refresh_token = "test_refresh_token"
-        client._token_expiry = datetime.now() + timedelta(hours=1)  # Valid for 1 hour
+        client._token_expiry = datetime.now(timezone.utc) + timedelta(hours=1)  # Valid for 1 hour
         client._session_id = "test_session_id"
         yield client
 

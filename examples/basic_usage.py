@@ -125,7 +125,6 @@ async def main():
         else:
             try:
                 # Perform full authentication (Steps 1-5)
-                # This will trigger a TAN challenge on your device
                 logger.info("No valid tokens found, starting authentication flow...")
                 await client.authenticate()
 

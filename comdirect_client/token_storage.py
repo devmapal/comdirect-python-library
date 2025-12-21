@@ -6,11 +6,16 @@ to/from persistent storage, enabling session recovery after application restart.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+def utc_now() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 
 class TokenStorageError(Exception):
@@ -145,12 +150,19 @@ class TokenPersistence:
             # Parse token expiry
             token_expiry = datetime.fromisoformat(token_data["token_expiry"])
 
-            # Check if tokens are already expired
-            if token_expiry <= datetime.now():
-                logger.warning("Loaded tokens are expired")
-                return None
+            # Ensure token_expiry is timezone-aware (assume UTC if naive)
+            if token_expiry.tzinfo is None:
+                token_expiry = token_expiry.replace(tzinfo=timezone.utc)
 
-            logger.debug(f"Tokens loaded from storage " f"(expires: {token_expiry.isoformat()})")
+            # Load tokens even if expired - the refresh mechanism will handle it
+            # The refresh_token may still be valid and can be used to get a new access_token
+            if token_expiry <= utc_now():
+                logger.info(
+                    f"Loaded tokens are expired (expired: {token_expiry.isoformat()}), "
+                    "but refresh_token may still be valid"
+                )
+            else:
+                logger.debug(f"Tokens loaded from storage (expires: {token_expiry.isoformat()})")
 
             return (
                 token_data["access_token"],

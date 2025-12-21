@@ -3,13 +3,18 @@
 import pytest
 import tempfile
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from comdirect_client.token_storage import (
     TokenPersistence,
     TokenStorageError,
 )
+
+
+def utc_now() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 
 class TestTokenPersistence:
@@ -48,7 +53,7 @@ class TestTokenPersistence:
 
         access_token = "test_access_token_123"
         refresh_token = "test_refresh_token_456"
-        token_expiry = datetime.now() + timedelta(hours=1)
+        token_expiry = utc_now() + timedelta(hours=1)
 
         # Save tokens
         persistence.save_tokens(access_token, refresh_token, token_expiry)
@@ -61,6 +66,7 @@ class TestTokenPersistence:
         assert loaded_access == access_token
         assert loaded_refresh == refresh_token
         # Compare timestamps (allowing small rounding differences)
+        # Both should be UTC-aware now
         assert abs((loaded_expiry - token_expiry).total_seconds()) < 1
 
     def test_load_nonexistent_file(self, storage_path):
@@ -70,16 +76,21 @@ class TestTokenPersistence:
         assert result is None
 
     def test_load_expired_tokens(self, storage_path):
-        """Test that expired tokens return None."""
+        """Test that expired tokens are still loaded (refresh_token may be valid)."""
         persistence = TokenPersistence(storage_path=storage_path)
 
         access_token = "test_access_token"
         refresh_token = "test_refresh_token"
-        token_expiry = datetime.now() - timedelta(hours=1)  # Already expired
+        token_expiry = utc_now() - timedelta(hours=1)  # Already expired
 
         persistence.save_tokens(access_token, refresh_token, token_expiry)
+
+        # Expired tokens are now loaded (behavior changed to allow refresh attempts)
         result = persistence.load_tokens()
-        assert result is None
+        assert result is not None
+        loaded_access, loaded_refresh, loaded_expiry = result
+        assert loaded_access == access_token
+        assert loaded_refresh == refresh_token
 
     def test_load_corrupted_json(self, storage_path):
         """Test loading corrupted JSON file."""
@@ -120,7 +131,7 @@ class TestTokenPersistence:
         # Save tokens
         access_token = "test_access_token"
         refresh_token = "test_refresh_token"
-        token_expiry = datetime.now() + timedelta(hours=1)
+        token_expiry = utc_now() + timedelta(hours=1)
         persistence.save_tokens(access_token, refresh_token, token_expiry)
 
         # Verify file exists
@@ -138,7 +149,7 @@ class TestTokenPersistence:
 
         access_token = "test_access_token"
         refresh_token = "test_refresh_token"
-        token_expiry = datetime.now() + timedelta(hours=1)
+        token_expiry = utc_now() + timedelta(hours=1)
 
         persistence.save_tokens(access_token, refresh_token, token_expiry)
 
@@ -154,7 +165,7 @@ class TestTokenPersistence:
 
         access_token = "test_access_token"
         refresh_token = "test_refresh_token"
-        token_expiry = datetime.now() + timedelta(hours=1)
+        token_expiry = utc_now() + timedelta(hours=1)
 
         # Should not raise error
         persistence.save_tokens(access_token, refresh_token, token_expiry)
@@ -166,13 +177,14 @@ class TestTokenPersistence:
         assert result is None
 
     def test_token_expiry_iso_format(self, storage_path):
-        """Test that token expiry is stored and retrieved in ISO format."""
+        """Test that token expiry is stored and retrieved in ISO format with UTC timezone."""
         persistence = TokenPersistence(storage_path=storage_path)
 
-        original_expiry = datetime(2025, 12, 10, 15, 30, 45, 123456)
+        # Use UTC-aware datetime
+        original_expiry = datetime(2025, 12, 10, 15, 30, 45, 123456, tzinfo=timezone.utc)
         persistence.save_tokens("access", "refresh", original_expiry)
 
-        # Read raw JSON to verify ISO format
+        # Read raw JSON to verify ISO format with timezone
         data = json.loads(Path(storage_path).read_text())
         assert data["token_expiry"] == original_expiry.isoformat()
 
@@ -187,13 +199,15 @@ class TestTokenPersistence:
         persistence = TokenPersistence(storage_path=storage_path)
 
         # First save
-        persistence.save_tokens("access1", "refresh1", datetime.now() + timedelta(hours=1))
+        persistence.save_tokens("access1", "refresh1", utc_now() + timedelta(hours=1))
         loaded1 = persistence.load_tokens()
+        assert loaded1 is not None
         assert loaded1[0] == "access1"
 
         # Second save (overwrite)
-        persistence.save_tokens("access2", "refresh2", datetime.now() + timedelta(hours=2))
+        persistence.save_tokens("access2", "refresh2", utc_now() + timedelta(hours=2))
         loaded2 = persistence.load_tokens()
+        assert loaded2 is not None
         assert loaded2[0] == "access2"
 
 
@@ -266,7 +280,7 @@ class TestTokenPersistenceIntegration:
         # Manually save a token
         client._access_token = "test_token"
         client._refresh_token = "test_refresh"
-        client._token_expiry = datetime.now() + timedelta(hours=1)
+        client._token_expiry = utc_now() + timedelta(hours=1)
         client._save_tokens_to_storage()
 
         # Verify file exists

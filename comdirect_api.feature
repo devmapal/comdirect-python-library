@@ -417,6 +417,104 @@ Feature: Comdirect API Client Library
     And all async methods should be properly typed with return types
 
   # ============================================================================
+  # Persistent Client Usage (Architecture)
+  # ============================================================================
+
+  Scenario: Client should be kept alive for background token refresh
+    Given the library is initialized with token_storage_path
+    When the user completes authentication successfully
+    Then the client should start a background asyncio refresh task
+    And the background task should refresh tokens 120 seconds before expiry
+    And the user should NOT destroy the client after each operation
+    And the library should log "INFO: Token refresh task started"
+    And consecutive API calls should reuse the same client instance
+    And tokens should auto-refresh without user intervention
+
+  Scenario: Destroying client cancels background refresh
+    Given the user has an authenticated client with running refresh task
+    When the user calls client.close() or destroys the client
+    Then the background refresh task should be cancelled
+    And the library should log "INFO: Token refresh task cancelled"
+    And tokens will expire after ~10 minutes without refresh
+    And subsequent operations will require new TAN approval
+
+  Scenario: Token storage enables session recovery across restarts
+    Given the library is initialized with token_storage_path="/path/to/tokens.json"
+    And a previous session saved valid tokens to storage
+    When a new client instance is created
+    Then the library should automatically load tokens from storage
+    And the library should log "INFO: Tokens restored from storage (expires: ...)"
+    And the background refresh task should start automatically
+    And no TAN approval should be required if tokens are still valid
+
+  # ============================================================================
+  # Timezone-Aware Token Expiry (UTC)
+  # ============================================================================
+
+  Scenario: Token expiry is stored with UTC timezone
+    Given the library refreshes or obtains new tokens
+    When the token expiry is calculated from expires_in
+    Then the expiry datetime should be timezone-aware (UTC)
+    And the library should use datetime.now(timezone.utc) for current time
+    And token storage should persist expiry with timezone info (+00:00)
+
+  Scenario: Token expiry comparison uses UTC timezone
+    Given the library has stored tokens with timezone-aware expiry
+    When the library checks if tokens are expired
+    Then the comparison should use datetime.now(timezone.utc)
+    And tokens stored in local time zones should be handled correctly
+    And the library should not be affected by container timezone settings
+
+  Scenario: Loading legacy tokens without timezone assumes UTC
+    Given the library loads tokens from storage
+    And the stored token_expiry has no timezone info (naive datetime)
+    When the library parses the token_expiry
+    Then the library should assume the datetime is in UTC
+    And the library should add UTC timezone info to the datetime
+    And token expiry comparisons should work correctly
+
+  # ============================================================================
+  # TAN Status Callback
+  # ============================================================================
+
+  Scenario: Register TAN status callback for real-time monitoring
+    Given the library is initialized
+    When the user registers a TAN status callback function via register_tan_status_callback()
+    Then the callback should be stored internally
+    And the callback should receive (status, data) parameters
+    And status values should be: 'requested', 'pending', 'approved', 'timeout'
+
+  Scenario: TAN status callback invoked when TAN is requested
+    Given a TAN status callback is registered
+    When the library creates a TAN challenge (Step 3)
+    Then the callback should be invoked with status='requested'
+    And data should contain: tan_type, challenge_id, timeout_seconds
+    And the library should log the TAN challenge creation
+
+  Scenario: TAN status callback invoked during polling
+    Given a TAN status callback is registered
+    And the library is polling for TAN approval
+    When the TAN status is still PENDING
+    Then the callback should be invoked with status='pending' every 10 seconds
+    And data should contain: tan_type, timeout_seconds, elapsed_seconds, remaining_seconds
+
+  Scenario: TAN status callback invoked on approval
+    Given a TAN status callback is registered
+    And the library is polling for TAN approval
+    When the TAN is approved by the user
+    Then the callback should be invoked with status='approved'
+    And data should contain: tan_type, elapsed_seconds
+    And the library should proceed with session activation
+
+  Scenario: TAN status callback invoked on timeout
+    Given a TAN status callback is registered
+    And the library is polling for TAN approval
+    When 60 seconds elapse without TAN approval
+    Then the callback should be invoked with status='timeout'
+    And data should contain: tan_type, timeout_seconds
+    And the library should raise TANTimeoutError
+
+  # ============================================================================
   # Integration Scenarios
   # ============================================================================
 

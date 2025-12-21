@@ -46,6 +46,7 @@ This client implements the official Comdirect REST API:
   - [On-Demand Token Refresh](#on-demand-token-refresh)
   - [Reauth Callback](#reauth-callback)
   - [Token Lifecycle](#token-lifecycle)
+- [Persistent Client Usage](#persistent-client-usage)
 - [Data Models](#data-models)
 - [Error Handling](#error-handling)
 - [Logging](#logging)
@@ -302,7 +303,7 @@ async def main():
     ) as client:
         
         # Authenticate (triggers Push-TAN on your smartphone)
-        print("Authenticating... Please approve Push-TAN on your device")
+        print("Authenticating...")
         await client.authenticate()
         print("✓ Authenticated!")
         
@@ -1001,6 +1002,164 @@ client = ComdirectClient(
 ### Token Lifecycle
 
 Tokens expire every ~10 minutes (599s). The client automatically refreshes 120 seconds before expiration, ensuring seamless API calls. When a token refresh occurs, both `access_token` and `refresh_token` rotate on the Comdirect API side.
+
+---
+
+## Persistent Client Usage
+
+**The ComdirectClient should be kept alive (persistent) throughout your application's lifecycle for best functionality.**
+
+### Why Keep the Client Alive?
+
+The client has a **background token refresh task** that automatically refreshes tokens 120 seconds before they expire. This task runs as an asyncio background coroutine and is critical for maintaining uninterrupted access to the Comdirect API.
+
+**If the client instance is destroyed:**
+
+- The background refresh task is cancelled
+- Tokens will expire after ~10 minutes (599 seconds)
+- A new TAN approval will be required for your next session
+- This defeats the purpose of automatic token refresh
+
+### Best Practice: Create Once, Reuse Everywhere
+
+```python
+import asyncio
+from comdirect_client.client import ComdirectClient
+
+# Global client instance - created once at application startup
+client: ComdirectClient | None = None
+
+async def init_client():
+    """Initialize the client once at startup."""
+    global client
+    client = ComdirectClient(
+        client_id="your_client_id",
+        client_secret="your_client_secret",
+        username="your_username",
+        password="your_password",
+        token_storage_path="/path/to/tokens.json",  # Persist across restarts
+    )
+    
+    # Authenticate once - requires TAN approval
+    await client.authenticate()
+    print("Client authenticated and ready!")
+    
+    # The background refresh task is now running automatically
+    # Tokens will be refreshed 120s before expiry
+
+async def get_balances():
+    """Use the persistent client for API calls."""
+    if not client:
+        raise RuntimeError("Client not initialized")
+    return await client.get_account_balances()
+
+async def get_transactions(account_id: str):
+    """Another API call using the same client instance."""
+    if not client:
+        raise RuntimeError("Client not initialized")
+    return await client.get_transactions(account_id)
+
+async def shutdown():
+    """Clean up when application shuts down."""
+    if client:
+        await client.close()
+```
+
+### What Happens with Token Storage?
+
+When you configure `token_storage_path`:
+
+1. **First run**: Authenticate with TAN, tokens are saved to disk
+2. **Subsequent runs**: Tokens are loaded from disk on client creation
+3. **Background refresh starts automatically** when valid tokens are loaded
+4. **No new TAN approval needed** as long as tokens haven't expired
+
+```python
+# Application startup
+client = ComdirectClient(
+    ...,
+    token_storage_path="/path/to/tokens.json",
+)
+
+# If valid tokens exist in storage:
+# - Tokens are automatically loaded
+# - Refresh task starts immediately
+# - No authenticate() call needed!
+
+if client.is_authenticated():
+    print("Tokens restored from storage - ready to use!")
+    balances = await client.get_account_balances()
+else:
+    print("No valid tokens - TAN approval required")
+    await client.authenticate()
+```
+
+### Anti-Pattern: Creating New Client Per Request
+
+**Do NOT do this** - it defeats the purpose of automatic token refresh:
+
+```python
+# BAD: Client is destroyed after each request
+async def get_balance_bad():
+    async with ComdirectClient(...) as client:
+        await client.authenticate()  # TAN approval needed
+        return await client.get_account_balances()
+    # Client destroyed here! Refresh task cancelled!
+
+# After ~10 minutes, calling get_balance_bad() again requires new TAN approval
+```
+
+### Framework Integration Examples
+
+**FastAPI / Starlette:**
+
+```python
+from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from comdirect_client.client import ComdirectClient
+
+client: ComdirectClient | None = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global client
+    client = ComdirectClient(
+        ...,
+        token_storage_path="/app/data/tokens.json",
+    )
+    if not client.is_authenticated():
+        await client.authenticate()
+    yield
+    await client.close()
+
+app = FastAPI(lifespan=lifespan)
+
+@app.get("/balances")
+async def get_balances():
+    return await client.get_account_balances()
+```
+
+**Long-running Service:**
+
+```python
+async def main():
+    client = ComdirectClient(
+        ...,
+        token_storage_path="tokens.json",
+        reauth_callback=lambda reason: print(f"Reauth needed: {reason}"),
+    )
+    
+    if not client.is_authenticated():
+        await client.authenticate()
+    
+    # Run indefinitely - tokens refresh automatically
+    while True:
+        balances = await client.get_account_balances()
+        print(f"Current balance: {balances[0].balance.value}")
+        await asyncio.sleep(3600)  # Check every hour
+
+asyncio.run(main())
+```
 
 ---
 
