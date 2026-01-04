@@ -5,7 +5,7 @@ import json
 import logging
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Optional, cast
 
 import httpx
@@ -891,19 +891,25 @@ class ComdirectClient:
         account_id: str,
         transaction_state: Optional[str] = None,
         transaction_direction: Optional[str] = None,
+        paging_count: Optional[int] = None,
+        min_booking_date: Optional[date] = None,
+        max_booking_date: Optional[date] = None,
         with_attributes: bool = True,
         without_attributes: Optional[str] = None,
     ) -> list[Transaction]:
-        """Retrieve **all available** transactions for a specific account.
+        """Retrieve transactions for a specific account with optional date filtering.
 
-        This method now uses the API's maximum page size to fetch up to
-        500 transactions in a single call (API limit). For accounts with more
-        than 500 transactions, only the most recent 500 will be returned.
+        This method supports date filtering and pagination. By default, it fetches
+        up to 500 transactions (API limit). For accounts with more than 500 transactions,
+        use date filtering to retrieve additional transactions.
 
         Args:
             account_id: Account UUID (from AccountBalance.accountId)
             transaction_state: Optional filter: "BOOKED", "NOTBOOKED", or "BOTH" (default: "BOTH")
             transaction_direction: Optional filter: "CREDIT", "DEBIT", or "CREDIT_AND_DEBIT" (default: "CREDIT_AND_DEBIT")
+            paging_count: Optional number of results per page (default: 500, max: 500)
+            min_booking_date: Optional start date for filtering (YYYY-MM-DD format)
+            max_booking_date: Optional end date for filtering (YYYY-MM-DD format)
             with_attributes: Include account details in response (default: True)
             without_attributes: Comma-separated list of attributes to exclude (optional)
 
@@ -919,12 +925,23 @@ class ComdirectClient:
         """
         await self._ensure_authenticated()
 
-        # Build query parameters with maximum page size
-        params: dict[str, str] = {"paging-count": "500"}
+        # Build query parameters
+        params: dict[str, str] = {}
         if transaction_state:
             params["transactionState"] = transaction_state
         if transaction_direction:
             params["transactionDirection"] = transaction_direction
+        if paging_count is not None:
+            params["paging-count"] = str(paging_count)
+        else:
+            # Default to maximum page size if not specified
+            params["paging-count"] = "500"
+        if min_booking_date:
+            # Format date as YYYY-MM-DD
+            params["min-bookingDate"] = min_booking_date.strftime("%Y-%m-%d")
+        if max_booking_date:
+            # Format date as YYYY-MM-DD
+            params["max-bookingDate"] = max_booking_date.strftime("%Y-%m-%d")
         if not with_attributes:
             params["without-attr"] = "account"
         if without_attributes:
@@ -933,11 +950,17 @@ class ComdirectClient:
             else:
                 params["without-attr"] = without_attributes
 
-        log_msg = f"Fetching ALL transactions for account {account_id[:8]}... (max: {params['paging-count']})"
+        log_msg = f"Fetching transactions for account {account_id[:8]}..."
         if transaction_direction:
             log_msg += f" (direction: {transaction_direction})"
         if transaction_state:
             log_msg += f" (state: {transaction_state})"
+        if min_booking_date:
+            log_msg += f" (from: {min_booking_date})"
+        if max_booking_date:
+            log_msg += f" (to: {max_booking_date})"
+        if paging_count is not None:
+            log_msg += f" (count: {paging_count})"
         logger.debug(log_msg)
 
         try:
@@ -962,6 +985,9 @@ class ComdirectClient:
                     account_id,
                     transaction_state,
                     transaction_direction,
+                    paging_count,
+                    min_booking_date,
+                    max_booking_date,
                     with_attributes,
                     without_attributes,
                 )

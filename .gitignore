@@ -138,3 +138,4 @@ dmypy.json
 # Token storage files
 tokens.json
 tokens/
+MR_DESCRIPTION.md
