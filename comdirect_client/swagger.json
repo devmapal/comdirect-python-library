@@ -1728,6 +1728,16 @@
           },
           "503": {
             "description": "Service Unavailable"
+          },
+          "406": {
+            "description": "Not Acceptable"
+          },
+          "200": {
+            "description": "Document content (binary)",
+            "schema": {
+              "type": "string",
+              "format": "binary"
+            }
           }
         },
         "security": [

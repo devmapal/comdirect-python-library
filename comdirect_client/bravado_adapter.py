@@ -101,8 +101,19 @@ class ComdirectBravadoClient(AsyncioClient):
                         headers.update(request_config.headers)
 
         # Ensure Accept header is set
+        # For document operations, use the operation's produces list instead of defaulting to JSON
         if "Accept" not in headers:
-            headers["Accept"] = "application/json"
+            if operation and hasattr(operation, 'op_spec'):
+                # Check if operation produces non-JSON content types
+                produces = operation.op_spec.get('produces', [])
+                if produces and not any('json' in p.lower() for p in produces):
+                    # Operation produces non-JSON content (e.g., PDF, HTML)
+                    # Accept all produces types (comma-separated)
+                    headers["Accept"] = ", ".join(produces)
+                else:
+                    headers["Accept"] = "application/json"
+            else:
+                headers["Accept"] = "application/json"
 
         logger.debug(
             f"Making {request_params.get('method', 'UNKNOWN')} request to "
