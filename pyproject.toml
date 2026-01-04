@@ -23,11 +23,14 @@ classifiers = [
     "Topic :: Office/Business :: Financial",
 ]
 packages = [{include = "comdirect_client"}]
+include = ["comdirect_client/swagger.json"]
 
 [tool.poetry.dependencies]
 python = "^3.9"
 httpx = "^0.27.0"
 pydantic = "^2.0.0"
+bravado = "^11.0.0"
+bravado-asyncio = "^1.4.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
