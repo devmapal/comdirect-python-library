@@ -321,7 +321,7 @@ async def main():
              print(f"\nFound {len(transactions)} transactions:")
              for tx in transactions[:5]:  # Show first 5
                  # Use booking date if available, otherwise fall back to valuta date
-                 display_date = tx.booking_date or tx.valuta_date or 'N/A'
+                 display_date = tx.bookingDate if tx.bookingDate else tx.valutaDate
                  print(f"  {display_date}: {tx.amount.value} {tx.amount.unit}")
 
 
@@ -540,10 +540,11 @@ transactions: list[Transaction] = await client.get_transactions(
 
 for tx in transactions:
     # Use booking date if available, otherwise fall back to valuta date
-    display_date = tx.booking_date or tx.valuta_date or 'N/A'
-    print(f"Date: {display_date}")                 # Booking date or valuta date (ISO format)
+    display_date = tx.bookingDate if tx.bookingDate else tx.valutaDate
+    print(f"Date: {display_date}")                 # Booking date or valuta date
     print(f"Amount: {tx.amount.value} {tx.amount.unit}")  # Transaction amount
-    print(f"Type: {tx.booking_key}")                  # Transaction type code
+    if tx.transactionType:
+        print(f"Type: {tx.transactionType.text}")  # Transaction type description
     # Remittance information is parsed into structured lines
     print("Remittance lines:")
     for line in tx.remittance_lines:
@@ -558,6 +559,9 @@ async def get_transactions(
     account_id: str,
     transaction_state: Optional[str] = None,
     transaction_direction: Optional[str] = None,
+    paging_count: Optional[int] = None,
+    min_booking_date: Optional[date] = None,
+    max_booking_date: Optional[date] = None,
     with_attributes: bool = True,
     without_attributes: Optional[str] = None
 ) -> list[Transaction]
@@ -570,6 +574,9 @@ async def get_transactions(
 | `account_id` | `str` | UUID | **Required** | Account UUID from `AccountBalance.accountId` |
 | `transaction_state` | `Optional[str]` | `"BOOKED"`, `"NOTBOOKED"`, `"BOTH"` | `None` | Filter by booking state |
 | `transaction_direction` | `Optional[str]` | `"CREDIT"`, `"DEBIT"`, `"CREDIT_AND_DEBIT"` | `None` | Filter by direction |
+| `paging_count` | `Optional[int]` | 1-500 | `500` | Number of results per page (max: 500) |
+| `min_booking_date` | `Optional[date]` | `date` object | `None` | Start date for filtering (YYYY-MM-DD) |
+| `max_booking_date` | `Optional[date]` | `date` object | `None` | End date for filtering (YYYY-MM-DD) |
 | `with_attributes` | `bool` | - | `True` | Include account details in response |
 | `without_attributes` | `Optional[str]` | attribute names | `None` | Comma-separated attributes to exclude |
 
@@ -585,41 +592,63 @@ async def get_transactions(
 - `DEBIT` - Only outgoing transactions (withdrawals)
 - `CREDIT_AND_DEBIT` - Both incoming and outgoing
 
-**⚠️ Pagination Limitations:**
+**📅 Date Filtering:**
 
-The Comdirect API has significant pagination limitations:
-
-- **Default page size**: Returns only **20 transactions** per page
-- **`paging-first` parameter**: Does **NOT support offset-based pagination**
-  - Only accepts value `0` (returns 422 error for any value > 0)
-  - Traditional page-by-page navigation is not supported
-- **Library behavior**: `get_transactions()` uses `paging-count=500` internally to fetch up to 500 transactions in one call (API limit).
+The library supports server-side date filtering using `min_booking_date` and `max_booking_date` parameters:
 
 ```python
-# Fetch up to 500 most recent transactions
+from datetime import date
+
+# Fetch transactions for a specific date range
+transactions = await client.get_transactions(
+    account_id="...",
+    min_booking_date=date(2024, 1, 1),
+    max_booking_date=date(2024, 12, 31)
+)
+print(f"Retrieved {len(transactions)} transactions for 2024")
+```
+
+**📄 Pagination:**
+
+The library supports pagination via the `paging_count` parameter:
+
+- **Default page size**: `paging_count` defaults to **500** (API maximum)
+- **Library behavior**: By default, `get_transactions()` fetches up to 500 transactions in one call
+
+```python
+# Fetch up to 500 most recent transactions (default)
 transactions = await client.get_transactions(account_id="...")
 print(f"Retrieved {len(transactions)} transactions (up to 500)")
+
+# Fetch with custom page size
+transactions = await client.get_transactions(
+    account_id="...",
+    paging_count=100
+)
 ```
 
 **Response Fields:**
 
-- `booking_date` (Optional[str]) - Booking date (ISO format: "2024-11-09") - **May be None for pending transactions**
-- `valuta_date` (Optional[str]) - Value date (ISO format) - Use as fallback if `booking_date` is not available
-- `amount` (AmountValue) - Transaction amount (positive for credit, negative for debit)
-- `booking_key` (str) - Transaction type code (e.g., "DIRECT_DEBIT", "TRANSFER")
+- `bookingDate` (Optional[date]) - Booking date - **May be None for pending transactions**
+- `valutaDate` (str) - Value date (ISO format string) - Use as fallback if `bookingDate` is not available
+- `amount` (Optional[AmountValue]) - Transaction amount (positive for credit, negative for debit)
+- `transactionType` (Optional[EnumText]) - Transaction type with `key` and `text` fields
+- `remittance_lines` (property) - List of parsed remittance lines (property that returns `remittanceLines`)
 - `remittanceLines` (list[str]) - Parsed remittance lines extracted from the raw `remittanceInfo` field
-- `creditor_id` (Optional[str]) - Creditor identifier
-- `mandate_reference` (Optional[str]) - SEPA mandate reference
+- `creditor` (Optional[AccountInformation]) - Creditor account information
+- `debtor` (Optional[AccountInformation]) - Debtor account information
+- `directDebitCreditorId` (Optional[str]) - Direct debit creditor identifier
+- `directDebitMandateId` (Optional[str]) - Direct debit mandate reference
 
 **💡 Tip: Handle Missing Booking Dates**
 
-For pending transactions, `booking_date` may be `None`. Always use `valuta_date` as a fallback:
+For pending transactions, `bookingDate` may be `None`. Always use `valutaDate` as a fallback:
 
 ```python
 # Recommended pattern
 for tx in transactions:
     # Use booking date if available, otherwise fall back to valuta date
-    display_date = tx.booking_date or tx.valuta_date or 'N/A'
+    display_date = tx.bookingDate if tx.bookingDate else tx.valutaDate
     print(f"Date: {display_date}")
 ```
 
@@ -644,71 +673,61 @@ print(f"Found {len(recent)} transactions in last 30 days")
 
 ### Advanced: Pagination and API Limits
 
-The Comdirect API uses server-side pagination with a hard limit of 500 transactions per request and does **not** support offset-based pagination via `paging-first`.
+The Comdirect API uses server-side pagination with a hard limit of 500 transactions per request.
 
 **Key points:**
 
-- Default page size is 20 transactions.
-- `paging-first` only accepts `0` (no offset pagination).
-- The library's `get_transactions()` method always requests `paging-count=500` to maximize results in a single call.
+- Default page size is 500 transactions (API maximum).
+- The library's `get_transactions()` method defaults to `paging-count=500` to maximize results in a single call.
 - You cannot retrieve more than 500 transactions for an account in one request.
+- Use date filtering (`min_booking_date`/`max_booking_date`) to retrieve transactions across different time periods.
 
-To access more than 500 transactions over time, you can implement date-based chunking or regular polling on top of `get_transactions()` (see strategies below).
+To access more than 500 transactions, use date-based filtering to split your queries across multiple date ranges (see examples below).
 
 #### Fetching More Than 500 Transactions
 
-⚠️ **Important:** The comdirect API has a hard limit of 500 transactions per request, and `paging-first` only accepts `0` (no offset pagination). This means you **cannot** retrieve more than 500 transactions by pagination alone.
+⚠️ **Important:** The comdirect API has a hard limit of 500 transactions per request. To retrieve more than 500 transactions, use date-based filtering to split your queries across multiple date ranges.
 
-**Strategy 1: Use Date Filtering (`min-bookingDate`)**
+**Strategy 1: Use Native Date Filtering**
 
-The most reliable way to access more than 500 transactions is to use date-based filtering and make multiple requests:
+The library now supports native date filtering via `min_booking_date` and `max_booking_date` parameters. Use this to fetch transactions across multiple date ranges:
 
 ```python
-from datetime import datetime, timedelta
+from datetime import date, timedelta
 from typing import List
 
 async def fetch_all_transactions_by_date(
     client, 
     account_uuid: str,
-    start_date: str,  # Format: "YYYY-MM-DD"
-    end_date: str     # Format: "YYYY-MM-DD"
+    start_date: date,
+    end_date: date,
+    chunk_days: int = 30
 ) -> List[Transaction]:
     """
     Fetch transactions across multiple date ranges to bypass the 500 limit.
     
     Strategy: Break large date ranges into smaller chunks (e.g., 30-day periods)
+    and use native date filtering.
     """
     all_transactions = []
-    current_date = datetime.strptime(start_date, "%Y-%m-%d")
-    final_date = datetime.strptime(end_date, "%Y-%m-%d")
+    current_date = start_date
     
-    while current_date <= final_date:
+    while current_date <= end_date:
         # Calculate date range (e.g., 30-day chunks)
-        chunk_end = min(current_date + timedelta(days=30), final_date)
+        chunk_end = min(current_date + timedelta(days=chunk_days), end_date)
         
-        print(f"Fetching transactions from {current_date.strftime('%Y-%m-%d')} "
-              f"to {chunk_end.strftime('%Y-%m-%d')}")
+        print(f"Fetching transactions from {current_date} to {chunk_end}")
         
-        # Calculate max_age_days from current date to chunk_end
-        days_diff = (datetime.now() - current_date).days
-        
-        # Fetch transactions for this date range
-        transactions = await client.get_all_transactions(
-            account_uuid=account_uuid,
-            max_age_days=days_diff  # API-side filter
+        # Fetch transactions for this date range using native date filtering
+        transactions = await client.get_transactions(
+            account_id=account_uuid,
+            min_booking_date=current_date,
+            max_booking_date=chunk_end,
+            paging_count=500  # Maximum per request
         )
         
-        # Client-side filter to only include transactions within chunk range
-        chunk_start_str = current_date.strftime("%Y-%m-%d")
-        chunk_end_str = chunk_end.strftime("%Y-%m-%d")
-        
-        filtered = [
-            tx for tx in transactions
-            if chunk_start_str <= (tx.booking_date or tx.valuta_date or "") <= chunk_end_str
-        ]
-        
-        all_transactions.extend(filtered)
-        print(f"  Found {len(filtered)} transactions in this period")
+        all_transactions.extend(transactions)
+        print(f"  Found {len(transactions)} transactions in this period")
         
         # Move to next chunk
         current_date = chunk_end + timedelta(days=1)
@@ -717,7 +736,9 @@ async def fetch_all_transactions_by_date(
     seen_refs = set()
     unique_transactions = []
     for tx in all_transactions:
-        ref = (tx.booking_date, tx.valuta_date, tx.amount.value if tx.amount else None, tx.reference)
+        # Use bookingDate if available, otherwise valutaDate as fallback
+        date_key = tx.bookingDate if tx.bookingDate else tx.valutaDate
+        ref = (date_key, tx.amount.value if tx.amount else None, tx.reference)
         if ref not in seen_refs:
             seen_refs.add(ref)
             unique_transactions.append(tx)
@@ -728,8 +749,9 @@ async def fetch_all_transactions_by_date(
 transactions = await fetch_all_transactions_by_date(
     client,
     account_uuid="YOUR_ACCOUNT_UUID",
-    start_date="2024-01-01",
-    end_date="2025-11-16"
+    start_date=date(2024, 1, 1),
+    end_date=date(2024, 12, 31),
+    chunk_days=30  # Fetch in 30-day chunks
 )
 print(f"Total transactions retrieved: {len(transactions)}")
 ```
@@ -754,7 +776,7 @@ async def poll_and_store_transactions(client, account_uuid: str, db_path: str):
     Run this daily to build a complete transaction history.
     """
     # Fetch up to 500 most recent transactions
-    transactions = await client.get_all_transactions(account_uuid)
+    transactions = await client.get_transactions(account_uuid)
     
     # Store in SQLite database
     conn = sqlite3.connect(db_path)
@@ -780,12 +802,12 @@ async def poll_and_store_transactions(client, account_uuid: str, db_path: str):
             INSERT OR IGNORE INTO transactions 
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
-            tx.booking_date,
-            tx.valuta_date,
+            str(tx.bookingDate) if tx.bookingDate else None,
+            tx.valutaDate,
             float(tx.amount.value) if tx.amount else None,
             tx.amount.unit if tx.amount else None,
             tx.reference,
-            tx.remittanceInfo,
+            " | ".join(tx.remittance_lines) if tx.remittance_lines else None,
             tx.creditor.holderName if tx.creditor else None
         ))
     
@@ -799,10 +821,11 @@ await poll_and_store_transactions(client, account_uuid, "transactions.db")
 
 **Key Takeaways:**
 
-- ✅ **For most use cases**: Use `get_all_transactions()` to fetch up to 500 transactions
-- ✅ **For >500 transactions**: Use date-based filtering with multiple API calls
+- ✅ **For most use cases**: Use `get_transactions()` to fetch up to 500 transactions
+- ✅ **For >500 transactions**: Use date-based filtering (`min_booking_date`/`max_booking_date`) with multiple API calls
+- ✅ **For specific date ranges**: Use native date filtering parameters
 - ✅ **For historical analysis**: Implement regular polling and store transactions locally
-- ❌ **NOT possible**: Offset-based pagination (API limitation)
+- ⚠️ **Note**: The API has a hard limit of 500 transactions per request, so use date filtering to retrieve larger datasets
 
 ---
 
@@ -1199,18 +1222,20 @@ print(balance.balance.unit)        # "EUR"
 ```python
 @dataclass
 class Transaction:
-    booking_date: Optional[str]         # Booking date (ISO format), may be None
-    valuta_date: Optional[str]          # Value date (ISO format), may be None
-    amount: AmountValue                 # Transaction amount
-    booking_key: str                    # Transaction type code
+    bookingDate: Optional[date]         # Booking date, may be None for pending transactions
+    valutaDate: str                     # Value date (ISO format string)
+    amount: Optional[AmountValue]       # Transaction amount
+    transactionType: Optional[EnumText] # Transaction type with key and text
     remittanceLines: list[str]          # Parsed remittance lines
-    creditor_id: Optional[str]          # Creditor identifier
-    mandate_reference: Optional[str]    # SEPA mandate reference
+    creditor: Optional[AccountInformation]  # Creditor account information
+    debtor: Optional[AccountInformation]    # Debtor account information
+    directDebitCreditorId: Optional[str]     # Direct debit creditor identifier
+    directDebitMandateId: Optional[str]      # Direct debit mandate reference
     # ... and more fields
 
     @property
     def remittance_lines(self) -> list[str]:
-        """Convenience alias for remittanceLines."""
+        """Convenience property that returns remittanceLines."""
         return self.remittanceLines
 ```
 
@@ -1218,10 +1243,12 @@ class Transaction:
 
 ```python
 tx = transactions[0]
-print(tx.booking_date)     # "2024-11-09"
+print(tx.bookingDate)     # date(2024, 11, 9) or None
+print(tx.valutaDate)      # "2024-11-09"
 print(tx.amount.value)     # -12.50 (negative = debit)
 print(tx.amount.unit)      # "EUR"
-print(tx.booking_key)      # "DIRECT_DEBIT"
+if tx.transactionType:
+    print(tx.transactionType.text)  # "DIRECT_DEBIT"
 print(tx.remittance_lines) # ["SPC*Mandragora Bochum", "Order 123-4567890-1234567"]
 ```
 
