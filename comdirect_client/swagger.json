@@ -138,6 +138,15 @@
             "format": "int32"
           },
           {
+            "name": "paging-count",
+            "in": "query",
+            "description": "Page size (default 20). Comdirect: 'Mit dem Parameter paging-count kann die Größe der Ergebnismenge verändert werden.'",
+            "required": false,
+            "type": "integer",
+            "default": 20,
+            "format": "int32"
+          },
+          {
             "name": "with-attr",
             "in": "query",
             "description": "Enforce to load the master data of an attribute. Currently supported attributes: account",
